@@ -1,0 +1,34 @@
+# === SECURITY: NEVER COMMIT THESE ===
+.env
+.env.*
+*.env
+secrets/
+**/auth-profiles.json
+
+# === OpenClaw runtime files ===
+.openclaw/
+openclaw-data/
+workspace/*/memory/
+workspace/*/sessions/
+
+# === Docker build artifacts ===
+docker-compose.override.yml
+
+# === OS junk ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Python ===
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# === Node ===
+node_modules/
+.pnpm-store/
+
+# === Logs ===
+*.log
+logs/

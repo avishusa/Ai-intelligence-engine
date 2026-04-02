@@ -5,8 +5,8 @@ Union Pacific, Norfolk Southern, and BNSF Railway, delivering a
 **Strategic Weekly Digest** to Discord/Telegram.
 
 ## Architecture
-- **Runtime**: OpenClaw (self-hosted, Dockerized)
-- **Agents**: Scraper ×3, Orchestrator, Analyst, Formatter
+- **Runtime**: Python Pipeline (Dockerized)
+- **Agents**: Scraper ×3(Crawl4AI), Orchestrator, Analyst, Formatter
 - **LLM**: Google Gemini (free tier)
 - **Delivery**: Discord webhook / Telegram bot
 

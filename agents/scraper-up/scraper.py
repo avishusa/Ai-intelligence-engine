@@ -1,81 +1,116 @@
-"""
+﻿"""
 agents/scraper-up/scraper.py
-WHY THIS FILE EXISTS: OpenClaw agents can run Python skills.
-This script fetches Union Pacific's official newsroom and extracts
-press release titles, URLs, and dates. It uses only the official UP domain.
+Uses Crawl4AI with headless Chromium to scrape Union Pacific's official newsroom.
+
+WHY Crawl4AI instead of BeautifulSoup?
+  UP's newsroom loads articles via JavaScript after page load.
+  BeautifulSoup only reads the initial HTML — it never sees the articles.
+  Crawl4AI launches a real browser, waits for JS to execute, then
+  returns clean markdown we can reliably parse.
+
+Source: https://www.up.com/press-releases (official UP corporate newsroom)
 """
 
-import os
+import sys
 import json
 import hashlib
-import requests
-from bs4 import BeautifulSoup
+import asyncio
+import re
 from datetime import datetime
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-# --- Configuration ---
-UP_NEWSROOM_URL = "https://www.up.com/news"
+SOURCE_NAME = "Union Pacific"
+SOURCE_URL  = "https://www.up.com/press-releases"
+
 AI_TECH_KEYWORDS = [
-    "artificial intelligence", "AI", "machine learning", "automation",
+    "artificial intelligence", " ai ", "machine learning", "automation",
     "technology", "digital", "data analytics", "predictive", "autonomous",
-    "robotics", "algorithm", "software", "innovation", "Wabtec",
-    "locomotive", "sensor", "computer vision"
+    "robotics", "algorithm", "software", "wabtec", "locomotive moderniz",
+    "sensor", "computer vision", "innovation", "moderniz", "efficiency"
 ]
 
-def fetch_articles():
-    """
-    WHY requests + BeautifulSoup?
-    requests = the standard Python library for making HTTP calls.
-    BeautifulSoup = parses HTML into a tree you can search — like a map of the page.
-    """
-    headers = {
-        # WHY a User-Agent? Some sites block requests with no browser identity.
-        # We identify ourselves as a research tool — honest and professional.
-        "User-Agent": "CSX-AIIntelligenceEngine/1.0 (research; contact: your@email.com)"
-    }
+def log(msg):
+    print(f"[UP Scout] {msg}", file=sys.stderr, flush=True)
 
-    try:
-        response = requests.get(UP_NEWSROOM_URL, headers=headers, timeout=15)
-        response.raise_for_status()   # Raises an error for 4xx/5xx responses
-    except requests.RequestException as e:
-        print(f"[UP Scout] ERROR: Could not fetch newsroom — {e}")
+def is_relevant(title: str) -> bool:
+    t = title.lower()
+    return any(kw in t for kw in AI_TECH_KEYWORDS)
+
+async def fetch_articles():
+    # WHY BrowserConfig headless=True?
+    # We don't need a visible browser window inside Docker.
+    # Headless mode runs the full browser engine without rendering UI —
+    # faster and uses less memory.
+    browser_config = BrowserConfig(
+        headless=True,
+        verbose=False,          # Set True if you want browser debug logs
+        browser_type="chromium"
+    )
+
+    # WHY CacheMode.BYPASS?
+    # We always want fresh data — never return a cached page from last week.
+    run_config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        word_count_threshold=5,     # Ignore tiny text blocks (nav labels)
+        remove_overlay_elements=True,  # Remove cookie popups and modals
+        wait_until="networkidle",   # Wait for JS to finish loading
+        page_timeout=30000          # 30 second timeout
+    )
+
+    log(f"Launching headless browser for {SOURCE_URL}")
+
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        result = await crawler.arun(url=SOURCE_URL, config=run_config)
+
+    if not result.success:
+        log(f"ERROR: Crawl failed — {result.error_message}")
         return []
 
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    # Find article elements — inspect up.com/news to confirm CSS selectors
+    # Crawl4AI returns result.links — a dict with 'internal' and 'external' lists
+    # Each li # Each link has 'href' and 'text' keys
     articles = []
-    # UP newsroom uses <article> tags with headline links inside
-    for item in soup.select("article")[:20]:  # Limit to latest 20
-        title_tag = item.select_one("h2, h3, .headline")
-        link_tag = item.select_one("a[href]")
-        date_tag = item.select_one("time, .date")
+    seen_ids = set()
 
-        if not title_tag or not link_tag:
+    internal_links = result.links.get("internal", [])
+    log(f"Found {len(internal_links)} internal links to filter")
+
+    for link in internal_links:
+        href  = link.get("href", "")
+        title = link.get("text", "").strip()
+
+        # WHY these filters?
+        # press-releases/ in the URL = it's an actual press release page
+        # len > 20 = real titles, not nav labels like "Home" or "Contact"
+        if "press-releases" not in href and "news" not in href:
+            continue
+        if len(title) < 25:
+            continue
+        if not is_relevant(title):
             continue
 
-        title = title_tag.get_text(strip=True)
-        url = link_tag["href"]
-        if not url.startswith("http"):
-            url = "https://www.up.com" + url
-        date = date_tag.get_text(strip=True) if date_tag else datetime.now().strftime("%Y-%m-%d")
+        url = href if href.startswith("http") else "https://www.up.com" + href
+        article_id = hashlib.md5(url.encode()).hexdigest()
 
-        # WHY keyword filtering HERE (not in the orchestrator)?
-        # Reduces noise before it ever leaves this agent. Efficient pipeline.
-        if any(kw.lower() in title.lower() for kw in AI_TECH_KEYWORDS):
-            articles.append({
-                "source": "Union Pacific",
-                "source_url": UP_NEWSROOM_URL,
-                "article_title": title,
-                "article_url": url,
-                "published_date": date,
-                "article_id": hashlib.md5(url.encode()).hexdigest()  # Dedup key
-            })
+        if article_id in seen_ids:
+            continue
+        seen_ids.add(article_id)
 
-    print(f"[UP Scout] Found {len(articles)} relevant articles.")
-    return articles
+        articles.append({
+            "source":         SOURCE_NAME,
+            "source_url":     SOURCE_URL,
+            "article_title":  title,
+            "article_url":    url,
+            "published_date": datetime.now().strftime("%Y-%m-%d"),
+            "article_id":     article_id
+        })
 
+    log(f"Found {len(articles)} relevant articles.")
+    return articles[:10]
+
+def main():
+    results = asyncio.run(fetch_articles())
+    # ONLY JSON to stdout — logs go to stderr
+    print(json.dumps(results))
 
 if __name__ == "__main__":
-    results = fetch_articles()
-    # Output as JSON for the OpenClaw pipeline to consume
-    print(json.dumps(results, indent=2))
+    main()

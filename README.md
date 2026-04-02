@@ -1,4 +1,4 @@
-﻿# CSX AI Intelligence Engine
+﻿# AI Intelligence Engine
 
 A multi-agent pipeline that tracks competitor AI activity across
 Union Pacific, Norfolk Southern, and BNSF Railway, delivering a

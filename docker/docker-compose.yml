@@ -1,48 +1,23 @@
-# docker/docker-compose.yml
-# ---------------------------------------------------------------
-# WHY docker-compose? It lets you define multiple containers and
-# their relationships in one file, then start everything with
-# one command: "docker compose up". Enterprise standard.
-# ---------------------------------------------------------------
+﻿services:
 
-version: "3.9"
-
-services:
-
-  # ============================================================
-  # SERVICE 1: OpenClaw Gateway
-  # The brain — all agents connect to this process.
-  # WHY isolated? So it cannot touch your Windows filesystem.
-  # ============================================================
-  openclaw-gateway:
-    image: node:22-alpine          # Official Node.js image — OpenClaw requires Node
-    container_name: openclaw-gateway
-    working_dir: /app
+  # Always-on scheduler — the only container that should restart
+  pipeline-scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: pipeline-scheduler
     volumes:
-      # Source code mounted READ-ONLY (agents can't modify their own code)
-      - ../agents:/app/agents:ro
-      # Named volume for runtime data (sessions, memory) — NOT your C:\Users\
+      - ../pipeline:/app/pipeline:ro
       - openclaw-data:/app/data
     env_file:
-      - ../.env                    # Injects all secrets from your .env file
+      - ../.env
     networks:
       - intel-net
-    ports: []                      # NO ports exposed to host — internal only
-    command: >
-      sh -c "npm install -g openclaw@latest &&
-             openclaw start --config /app/agents/openclaw.json"
-    restart: unless-stopped
-    # SECURITY: Read-only root filesystem except named volumes
-    read_only: true
-    tmpfs:
-      - /tmp                       # Temp files only live in memory, not disk
+    restart: unless-stopped      # stays alive, fires pipeline weekly
 
-  # ============================================================
-  # SERVICE 2: Scraper Workers
-  # Three agents in one container — each has its own workspace.
-  # WHY Python? BeautifulSoup + feedparser are the standard
-  # tools for parsing RSS feeds and HTML press releases.
-  # ============================================================
+  # These three run ONCE per pipeline trigger then exit cleanly
+  # WHY no restart? The scheduler calls them via subprocess.
+  # restart: no means Docker won't loop them endlessly.
   scraper-agents:
     build:
       context: ..
@@ -55,17 +30,8 @@ services:
       - ../.env
     networks:
       - intel-net
-    depends_on:
-      - openclaw-gateway           # Starts AFTER the gateway is ready
-    restart: unless-stopped
-    read_only: true
-    tmpfs:
-      - /tmp
+    restart: "no"
 
-  # ============================================================
-  # SERVICE 3: Analyst Agent
-  # Calls Gemini free tier to summarize and score each article.
-  # ============================================================
   analyst-agent:
     build:
       context: ..
@@ -78,17 +44,8 @@ services:
       - ../.env
     networks:
       - intel-net
-    depends_on:
-      - openclaw-gateway
-    restart: unless-stopped
-    read_only: true
-    tmpfs:
-      - /tmp
+    restart: "no"
 
-  # ============================================================
-  # SERVICE 4: Formatter + Delivery Agent
-  # Builds the digest and fires the Discord/Telegram webhook.
-  # ============================================================
   formatter-agent:
     build:
       context: ..
@@ -101,27 +58,12 @@ services:
       - ../.env
     networks:
       - intel-net
-    depends_on:
-      - analyst-agent
-    restart: unless-stopped
-    read_only: true
-    tmpfs:
-      - /tmp
+    restart: "no"
 
-# ============================================================
-# NETWORK: Isolated bridge — containers talk to each other
-# but are invisible to everything else on your Windows network.
-# ============================================================
 networks:
   intel-net:
     driver: bridge
-    internal: false                # Allows outbound internet (for scraping + Gemini)
 
-# ============================================================
-# VOLUME: Named volume = Docker manages the storage location.
-# It lives inside Docker Desktop's virtual disk, NOT in C:\Users\
-# This is the Zero-Trust guarantee.
-# ============================================================
 volumes:
   openclaw-data:
     driver: local

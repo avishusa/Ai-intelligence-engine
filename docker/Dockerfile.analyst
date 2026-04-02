@@ -1,0 +1,6 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY docker/requirements.analyst.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY agents/ /app/agents/
+CMD ["python3", "/app/agents/analyst/analyst.py"]

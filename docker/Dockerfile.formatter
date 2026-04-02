@@ -1,0 +1,15 @@
+﻿FROM python:3.12-slim
+
+WORKDIR /app
+
+# WHY copy requirements first?
+# Docker caches layers. If only your code changes (not requirements),
+# Docker reuses the cached pip install layer = much faster rebuilds.
+COPY docker/requirements.formatter.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy all agent code into the container
+COPY agents/ /app/agents/
+
+# This container's job: build and deliver the digest
+CMD ["python3", "/app/agents/formatter/formatter.py"]

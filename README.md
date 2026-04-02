@@ -1,18 +1,19 @@
-# AI Intelligence Engine
+﻿# CSX AI Intelligence Engine
 
-A multi-agent system that tracks competitor AI and technology activity across
+A multi-agent pipeline that tracks competitor AI activity across
 Union Pacific, Norfolk Southern, and BNSF Railway, delivering a
-**Strategic Weekly Digest** to Discord/Telegram.
+**Strategic Weekly Digest** to Discord/Telegram every Monday.
 
 ## Architecture
-- **Runtime**: Python Pipeline (Dockerized)
-- **Agents**: Scraper ×3(Crawl4AI), Orchestrator, Analyst, Formatter
-- **LLM**: Google Gemini (free tier)
-- **Delivery**: Discord webhook / Telegram bot
+- **Scraping**: Crawl4AI with headless Chromium (handles JS-rendered newsrooms)
+- **Orchestration**: Python APScheduler + subprocess-based multi-agent pipeline
+- **Agents**: UP Scout, NS Sentinel, BNSF Watcher (scrapers) → CABAL (orchestrator) → DAEDALUS (Gemini analyst) → HERALD (formatter)
+- **LLM**: Google Gemini 2.5 Flash-Lite (free tier)
+- **Delivery**: Discord webhook + Telegram bot
+- **Security**: Docker sandbox — zero access to host filesystem
 
-## Setup
-See `docs/SETUP.md` for full instructions.
-
-## Security
-All agents run inside Docker with no access to host filesystem.
-API keys are stored in `.env` (never committed to Git).
+## Why not OpenClaw?
+OpenClaw is designed as a local persistent daemon (run via openclaw onboard).
+It does not support Docker-native headless operation in the current stable release.
+The file-based multi-agent handoff pattern we use mirrors OpenClaw's own
+recommended agent communication approach.

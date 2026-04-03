@@ -1,6 +1,6 @@
 ﻿"""
 pipeline/scheduler.py
-Always-on heartbeat of the CSX AI Intelligence Engine.
+Always-on heartbeat of the AI Intelligence Engine.
 Fires run_pipeline.py every Monday at 7AM UTC automatically.
 
 WHY APScheduler over system cron?
@@ -51,20 +51,20 @@ def main():
     scheduler = BlockingScheduler(timezone="UTC")
 
     # WHY Monday 7AM UTC?
-    # Your CSX Lead arrives Monday morning with the digest already waiting.
+    # Your Lead arrives Monday morning with the digest already waiting.
     # UTC avoids daylight saving time confusion across time zones.
     scheduler.add_job(
         run_pipeline,
         trigger=CronTrigger(day_of_week="mon", hour=7, minute=0),
         id="weekly_intel_digest",
-        name="CSX Weekly AI Intelligence Digest",
+        name="Weekly AI Intelligence Digest",
         # WHY misfire_grace_time=3600?
         # If Docker was down at exactly 7AM, the job still runs
         # within 1 hour of the scheduled time when Docker recovers.
         misfire_grace_time=3600
     )
 
-    log.info("CSX AI Intelligence Engine — Scheduler online")
+    log.info("AI Intelligence Engine — Scheduler online")
     log.info("Pipeline scheduled: Every Monday at 07:00 UTC")
     log.info("Running pipeline NOW for immediate smoke test...")
     log.info("")

@@ -2,10 +2,10 @@
 
 WORKDIR /app
 
-# Install system libraries Chromium needs to run headlessly
-# WHY manually? 'playwright install --with-deps' tries to install
-# fonts (ttf-unifont, ttf-ubuntu-font-family) that don't exist in
-# python:3.12-slim. We install only what actually works instead.
+# Install Chromium system dependencies manually.
+# WHY not --with-deps? That flag tries to install font packages
+# (ttf-unifont, ttf-ubuntu-font-family) that do not exist in
+# python:3.12-slim. We provide only what actually works.
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -35,18 +35,15 @@ RUN apt-get update && apt-get install -y \
 COPY docker/requirements.gateway.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# WHY --with-deps is REMOVED?
-# --with-deps tries to apt-install font packages that don't exist
-# in python:3.12-slim (ttf-unifont, ttf-ubuntu-font-family).
-# We already installed Chromium's real dependencies above manually,
-# so we only need the browser binary itself here.
+# Install Chromium browser binary only (no --with-deps)
+# System deps are already handled by apt-get above
 RUN playwright install chromium
 
-# Copy all pipeline and agent code
+# Copy all code
 COPY pipeline/ /app/pipeline/
 COPY agents/   /app/agents/
 
-# Confirm files landed correctly at build time
+# Confirm files exist at build time — catches missing files early
 RUN echo "=== Pipeline ===" && ls /app/pipeline/ && \
     echo "=== Agents ===" && ls /app/agents/
 

@@ -8,6 +8,7 @@ import sys
 import json
 import hashlib
 import asyncio
+import re
 from datetime import datetime
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
@@ -19,15 +20,20 @@ AI_TECH_KEYWORDS = [
     "technology", "digital", "data", "predictive", "autonomous",
     "innovation", "analytics", "software", "algorithm", "sensor",
     "locomotive", "robotics", "transformation", "east edge",
-    "moderniz", "efficiency", "intermodal tech"
+    "moderniz", "efficiency", "intermodal", "double-stack",
+    "network", "operations", "platform", "connected"
 ]
 
 def log(msg):
     print(f"[NS Sentinel] {msg}", file=sys.stderr, flush=True)
 
+def clean_title(title: str) -> str:
+    title = re.sub(r'^[A-Z][a-z]+ \d{1,2}, \d{4}\s*', '', title)
+    title = re.sub(r'\s+', ' ', title).strip()
+    return title
+
 def is_relevant(title: str) -> bool:
-    t = title.lower()
-    return any(kw in t for kw in AI_TECH_KEYWORDS)
+    return any(kw in title.lower() for kw in AI_TECH_KEYWORDS)
 
 async def fetch_articles():
     browser_config = BrowserConfig(
@@ -39,8 +45,8 @@ async def fetch_articles():
         cache_mode=CacheMode.BYPASS,
         word_count_threshold=5,
         remove_overlay_elements=True,
-        wait_until="networkidle",
-        page_timeout=30000
+        wait_until="domcontentloaded",
+        page_timeout=45000
     )
 
     log(f"Launching headless browser for {SOURCE_URL}")
@@ -59,16 +65,16 @@ async def fetch_articles():
 
     for link in internal_links:
         href  = link.get("href", "")
-        title = link.get("text", "").strip()
+        title = clean_title(link.get("text", "").strip())
 
         if "newsroom" not in href and "news-release" not in href:
             continue
-        if len(title) < 25:
+        if len(title) < 20:
             continue
         if not is_relevant(title):
             continue
 
-        url = href if href.startswith("http") else "https://www.norfolksouthern.com" + href
+        url        = href if href.startswith("http") else "https://www.norfolksouthern.com" + href
         article_id = hashlib.md5(url.encode()).hexdigest()
 
         if article_id in seen_ids:

@@ -13,7 +13,7 @@ WHY APScheduler over system cron?
 import sys
 import logging
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -33,7 +33,7 @@ def run_pipeline():
     """
     log.info("=" * 55)
     log.info("SCHEDULED PIPELINE RUN STARTING")
-    log.info(f"Timestamp: {datetime.utcnow().isoformat()}Z")
+    log.info(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
     log.info("=" * 55)
 
     result = subprocess.run(

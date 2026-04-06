@@ -1,14 +1,14 @@
 ﻿"""
 agents/orchestrator/orchestrator.py  —  CABAL
-Reads scraper output (stdout=JSON, stderr=logs) and orchestrates the pipeline.
+Orchestrates the full pipeline: triggers scrapers, deduplicates,
+scores relevance, and writes scored_articles.json for DAEDALUS.
 """
 
-import os
 import sys
 import json
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 PIPELINE_DIR = Path("/app/data/pipeline")
 PIPELINE_DIR.mkdir(parents=True, exist_ok=True)
@@ -17,16 +17,33 @@ RAW_FILE    = PIPELINE_DIR / "raw_articles.json"
 SCORED_FILE = PIPELINE_DIR / "scored_articles.json"
 SEEN_FILE   = PIPELINE_DIR / "seen_article_ids.json"
 
+# Score 5 = highly strategic AI/tech signal for CSX AI Lead
 HIGH_VALUE_KEYWORDS = [
-    "artificial intelligence", "machine learning", "AI", "autonomous",
-    "automation", "predictive maintenance", "digital twin", "algorithm",
-    "computer vision", "robotics", "data analytics", "sensor fusion",
-    "locomotive technology", "Wabtec", "software platform"
+    "artificial intelligence", "machine learning", " ai ",
+    "autonomous", "automation", "predictive maintenance",
+    "digital twin", "algorithm", "computer vision", "robotics",
+    "data analytics", "sensor fusion", "locomotive technology",
+    "wabtec", "software platform", "moderniz", "east edge",
+    "double-stack", "intermodal technology", "precision scheduled",
+    "real-time", "optimization", "physics train", "quantum intermodal",
+    "technology investment", "tech", "digital transformation",
+    "innovation invest", "capital invest"
 ]
 
+# Score 3 = relevant context, worth monitoring
 MEDIUM_VALUE_KEYWORDS = [
-    "technology", "digital", "innovation", "data", "efficiency",
-    "intermodal", "modernization", "platform", "smart", "connected"
+    "intermodal", "platform", "smart", "connected",
+    "efficiency", "network upgrade", "logistics center",
+    "infrastructure invest", "expansion project"
+]
+
+# These words cause false positives — articles containing ONLY these
+# without any HIGH/MEDIUM keyword get dropped
+NOISE_PHRASES = [
+    "donation", "charity", "scholarship", "community grant",
+    "labor agreement", "union contract", "dividend", "earnings call",
+    "board of directors", "executive appoint", "retirement",
+    "heritage", "anniversary", "steam locomotive tour"
 ]
 
 def log(msg):
@@ -41,12 +58,35 @@ def save_seen_ids(seen_ids):
     SEEN_FILE.write_text(json.dumps(list(seen_ids), indent=2))
 
 def score_article(title: str) -> int:
-    title_lower = title.lower()
-    if any(kw.lower() in title_lower for kw in HIGH_VALUE_KEYWORDS):
-        return 5
-    if any(kw.lower() in title_lower for kw in MEDIUM_VALUE_KEYWORDS):
-        return 3
-    return 1
+    """
+    Score an article 1-5 for AI/tech relevance to CSX.
+
+    WHY noise filtering?
+    Broad keywords like 'million' or 'network' can match donation
+    announcements, labor agreements, or earnings calls — none of
+    which are relevant to a Lead of AI Delivery. We explicitly
+    drop articles whose titles contain only noise phrases with no
+    compensating high-value signal.
+    """
+    t = title.lower()
+
+    # First check: is this a noise article?
+    # If any noise phrase matches AND no high-value keyword matches,
+    # immediately drop it regardless of medium keyword matches.
+    has_noise     = any(phrase in t for phrase in NOISE_PHRASES)
+    has_high      = any(kw in t for kw in HIGH_VALUE_KEYWORDS)
+    has_medium    = any(kw in t for kw in MEDIUM_VALUE_KEYWORDS)
+
+    if has_noise and not has_high:
+        return 1   # Drop — noise article with no tech signal
+
+    if has_high:
+        return 5   # Strong AI/tech signal
+
+    if has_medium:
+        return 3   # Relevant context
+
+    return 1       # Not relevant
 
 def run_scrapers():
     scrapers = [
@@ -61,14 +101,11 @@ def run_scrapers():
         try:
             result = subprocess.run(
                 ["python3", script_path],
-                capture_output=True,   # stdout=JSON, stderr=logs
+                capture_output=True,
                 text=True,
-                timeout=60
+                timeout=120
             )
 
-            # WHY print stderr separately?
-            # Scraper logs go to stderr. We forward them so they appear
-            # in docker logs for debugging, but don't mix with JSON stdout.
             if result.stderr:
                 print(result.stderr, end="", flush=True)
 
@@ -82,13 +119,13 @@ def run_scrapers():
                 all_articles.extend(articles)
                 log(f"{name} returned {len(articles)} articles.")
             else:
-                log(f"{name} FAILED (exit {result.returncode}): {result.stderr}")
+                log(f"{name} FAILED (exit {result.returncode})")
 
         except subprocess.TimeoutExpired:
-            log(f"{name} timed out — skipping.")
+            log(f"{name} timed out after 120s — skipping.")
         except json.JSONDecodeError as e:
             log(f"{name} returned invalid JSON: {e}")
-            log(f"Raw stdout was: {repr(result.stdout[:200])}")
+            log(f"Raw stdout: {repr(result.stdout[:300])}")
 
     RAW_FILE.write_text(json.dumps(all_articles, indent=2))
     log(f"Saved {len(all_articles)} raw articles → {RAW_FILE}")
@@ -117,9 +154,9 @@ def orchestrate():
         if score >= 3:
             scored.append(article)
             new_seen_ids.add(article_id)
-            log(f"PASS (score={score}): {article['article_title'][:60]}")
+            log(f"PASS (score={score}): {article['article_title'][:70]}")
         else:
-            log(f"DROP (score={score}): {article['article_title'][:60]}")
+            log(f"DROP (score={score}): {article['article_title'][:70]}")
 
     SCORED_FILE.write_text(json.dumps(scored, indent=2))
     save_seen_ids(seen_ids | new_seen_ids)

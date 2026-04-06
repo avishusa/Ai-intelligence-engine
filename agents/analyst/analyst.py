@@ -54,7 +54,7 @@ Return this exact JSON structure:
   "key_technologies_mentioned": ["list", "of", "tech", "terms"]
 }}"""
 
-def call_gemini_with_retry(prompt: str, max_retries: int = 3) -> dict | None:
+def call_gemini_with_retry(prompt: str, max_retries: int = 5) -> dict | None:
     """
     WHY retry with backoff?
     Free tier rate limits (15 RPM) mean occasionally we'll hit a 429 error.
@@ -78,7 +78,7 @@ def call_gemini_with_retry(prompt: str, max_retries: int = 3) -> dict | None:
             )
 
             if response.status_code == 429:
-                wait = 2 ** attempt * 5  # 5s, 10s, 20s
+                wait = 2 ** attempt * 10  # 5s, 10s, 20s
                 print(f"[DAEDALUS] Rate limited. Waiting {wait}s...")
                 time.sleep(wait)
                 continue
@@ -128,7 +128,7 @@ def analyze():
             print(f"[DAEDALUS] ✗ Analysis failed — skipping this article.")
 
         # WHY sleep? Respect free tier rate limits. 15 RPM = 4s between calls is safe.
-        time.sleep(4)
+        time.sleep(8)
 
     ANALYZED_FILE.write_text(json.dumps(analyzed, indent=2))
     print(f"\n[DAEDALUS] Done. {len(analyzed)} articles analyzed → {ANALYZED_FILE}")

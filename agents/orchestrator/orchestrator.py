@@ -10,14 +10,14 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 
-PIPELINE_DIR = Path("/app/data/pipeline")
+PIPELINE_DIR  = Path("/app/data/pipeline")
 PIPELINE_DIR.mkdir(parents=True, exist_ok=True)
 
-RAW_FILE    = PIPELINE_DIR / "raw_articles.json"
-SCORED_FILE = PIPELINE_DIR / "scored_articles.json"
-SEEN_FILE   = PIPELINE_DIR / "seen_article_ids.json"
+RAW_FILE      = PIPELINE_DIR / "raw_articles.json"
+SCORED_FILE   = PIPELINE_DIR / "scored_articles.json"
+ANALYZED_FILE = PIPELINE_DIR / "analyzed_articles.json"
+SEEN_FILE     = PIPELINE_DIR / "seen_article_ids.json"
 
-# Score 5 = highly strategic AI/tech signal for CSX AI Lead
 HIGH_VALUE_KEYWORDS = [
     "artificial intelligence", "machine learning", " ai ",
     "autonomous", "automation", "predictive maintenance",
@@ -30,15 +30,12 @@ HIGH_VALUE_KEYWORDS = [
     "innovation invest", "capital invest"
 ]
 
-# Score 3 = relevant context, worth monitoring
 MEDIUM_VALUE_KEYWORDS = [
     "intermodal", "platform", "smart", "connected",
     "efficiency", "network upgrade", "logistics center",
     "infrastructure invest", "expansion project"
 ]
 
-# These words cause false positives — articles containing ONLY these
-# without any HIGH/MEDIUM keyword get dropped
 NOISE_PHRASES = [
     "donation", "charity", "scholarship", "community grant",
     "labor agreement", "union contract", "dividend", "earnings call",
@@ -49,6 +46,19 @@ NOISE_PHRASES = [
 def log(msg):
     print(f"[CABAL] {msg}", flush=True)
 
+def clear_pipeline_files():
+    """
+    WHY clear pipeline files at the start of every run?
+    analyzed_articles.json persists from the previous run.
+    If this run finds zero new articles, HERALD would read
+    the stale file and send duplicate results.
+    Clearing ensures HERALD always reads only THIS run's output.
+    """
+    for f in [RAW_FILE, SCORED_FILE, ANALYZED_FILE]:
+        if f.exists():
+            f.unlink()
+            log(f"Cleared stale file: {f.name}")
+
 def load_seen_ids():
     if SEEN_FILE.exists():
         return set(json.loads(SEEN_FILE.read_text()))
@@ -58,35 +68,18 @@ def save_seen_ids(seen_ids):
     SEEN_FILE.write_text(json.dumps(list(seen_ids), indent=2))
 
 def score_article(title: str) -> int:
-    """
-    Score an article 1-5 for AI/tech relevance to CSX.
-
-    WHY noise filtering?
-    Broad keywords like 'million' or 'network' can match donation
-    announcements, labor agreements, or earnings calls — none of
-    which are relevant to a Lead of AI Delivery. We explicitly
-    drop articles whose titles contain only noise phrases with no
-    compensating high-value signal.
-    """
-    t = title.lower()
-
-    # First check: is this a noise article?
-    # If any noise phrase matches AND no high-value keyword matches,
-    # immediately drop it regardless of medium keyword matches.
-    has_noise     = any(phrase in t for phrase in NOISE_PHRASES)
-    has_high      = any(kw in t for kw in HIGH_VALUE_KEYWORDS)
-    has_medium    = any(kw in t for kw in MEDIUM_VALUE_KEYWORDS)
+    t         = title.lower()
+    has_noise  = any(phrase in t for phrase in NOISE_PHRASES)
+    has_high   = any(kw in t for kw in HIGH_VALUE_KEYWORDS)
+    has_medium = any(kw in t for kw in MEDIUM_VALUE_KEYWORDS)
 
     if has_noise and not has_high:
-        return 1   # Drop — noise article with no tech signal
-
+        return 1
     if has_high:
-        return 5   # Strong AI/tech signal
-
+        return 5
     if has_medium:
-        return 3   # Relevant context
-
-    return 1       # Not relevant
+        return 3
+    return 1
 
 def run_scrapers():
     scrapers = [
@@ -135,6 +128,10 @@ def orchestrate():
     print("=" * 60, flush=True)
     log("Starting orchestration run...")
     print("=" * 60, flush=True)
+
+    # Clear stale pipeline files from previous run FIRST
+    # This is what prevents HERALD from sending duplicate results
+    clear_pipeline_files()
 
     all_articles = run_scrapers()
     seen_ids     = load_seen_ids()
